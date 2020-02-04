@@ -82,6 +82,76 @@ class Layer(object):
             tf.summary.histogram(self.name + '/vars/' + var, self.vars[var])
 
 
+# 从 Layer 继承下来得到图卷积网络，与denseNet的唯一差别是_call函数和__init__函数（self.support = placeholders['support']的初始化）
+class GraphConvolution(Layer):
+    """Graph convolution layer."""
+
+    def __init__(self, input_dim, output_dim, placeholders, dropout=0.,
+                 sparse_inputs=False, act=tf.nn.relu, bias=False,
+                 featureless=False, **kwargs):
+        super(GraphConvolution, self).__init__(**kwargs)
+
+        if dropout:
+            self.dropout = placeholders['dropout']
+        else:
+            self.dropout = 0.
+
+        self.act = act  # 激活函数
+        self.support = placeholders['support']
+        self.sparse_inputs = sparse_inputs  # 是否是稀疏数据
+        self.featureless = featureless  # 输入的数据带不带特征矩阵
+        self.bias = bias  # 是否有偏置
+
+        # helper variable for sparse dropout
+        self.num_features_nonzero = placeholders['num_features_nonzero']
+
+        # 下面是定义变量，主要是通过调用init.py中的glorot函数实现
+        # glorot函数生成随机的一定上下界的 权重矩阵
+        with tf.variable_scope(self.name + '_vars'):
+            for i in range(len(self.support)):
+                self.vars['weights_' + str(i)] = glorot([input_dim, output_dim],
+                                                        name='weights_' + str(i))
+            if self.bias:
+                self.vars['bias'] = zeros([output_dim], name='bias')
+
+        if self.logging:
+            self._log_vars()
+
+    def _call(self, inputs):
+        x = inputs
+        # print("*" * 10)
+        # with open("view_data.txt", 'w') as handle:
+        #     handle.write(str(type(x)))
+        # dropout
+        # print(self.sparse_inputs)
+        if self.sparse_inputs:
+            x = sparse_dropout(x, 1 - self.dropout, self.num_features_nonzero)
+        else:
+            x = tf.nn.dropout(x, 1 - self.dropout)
+
+        # convolve
+        # convolve 卷积的实现。主要是根据论文中公式H^{(l+1)} = relu(\tilde{D}^{-1/2} \tilde{A}^{-1/2} \tilde{D}^{-1/2}  H^{(l)}W^{(l)})实现
+        supports = list()
+        for i in range(len(self.support)):
+            if not self.featureless:
+                pre_sup = dot(x, self.vars['weights_' + str(i)],
+                              sparse=self.sparse_inputs)
+            else:
+                pre_sup = self.vars['weights_' + str(i)]
+            # support : \tilde{D}^{-1/2} \tilde{A}^{-1/2} \tilde{D}^{-1/2}
+            support = dot(self.support[i], pre_sup, sparse=True)
+            supports.append(support)
+        output = tf.add_n(supports)  # 对应位置相加，对于GCN只有一个support，所以这里无视
+# x = tf.constant([1, 2, 3])
+# sess = tf.Session()
+# print(sess.run(tf.add_n([x, x]))) # [2 4 6]
+        # bias
+        if self.bias:
+            output += self.vars['bias']
+
+        return self.act(output)
+
+
 class Dense(Layer):
     """Dense layer."""
 
@@ -111,6 +181,7 @@ class Dense(Layer):
         if self.logging:
             self._log_vars()
 
+# 重写了_call 函数，其中对稀疏矩阵做 drop_out:sparse_dropout()
     def _call(self, inputs):
         x = inputs
 
@@ -122,66 +193,6 @@ class Dense(Layer):
 
         # transform
         output = dot(x, self.vars['weights'], sparse=self.sparse_inputs)
-
-        # bias
-        if self.bias:
-            output += self.vars['bias']
-
-        return self.act(output)
-
-
-class GraphConvolution(Layer):
-    """Graph convolution layer."""
-
-    def __init__(self, input_dim, output_dim, placeholders, dropout=0.,
-                 sparse_inputs=False, act=tf.nn.relu, bias=False,
-                 featureless=False, **kwargs):
-        super(GraphConvolution, self).__init__(**kwargs)
-
-        if dropout:
-            self.dropout = placeholders['dropout']
-        else:
-            self.dropout = 0.
-
-        self.act = act
-        self.support = placeholders['support']
-        self.sparse_inputs = sparse_inputs
-        self.featureless = featureless
-        self.bias = bias
-
-        # helper variable for sparse dropout
-        self.num_features_nonzero = placeholders['num_features_nonzero']
-
-        with tf.variable_scope(self.name + '_vars'):
-            for i in range(len(self.support)):
-                self.vars['weights_' + str(i)] = glorot([input_dim, output_dim],
-                                                        name='weights_' + str(i))
-            if self.bias:
-                self.vars['bias'] = zeros([output_dim], name='bias')
-
-        if self.logging:
-            self._log_vars()
-
-    def _call(self, inputs):
-        x = inputs
-
-        # dropout
-        if self.sparse_inputs:
-            x = sparse_dropout(x, 1 - self.dropout, self.num_features_nonzero)
-        else:
-            x = tf.nn.dropout(x, 1 - self.dropout)
-
-        # convolve
-        supports = list()
-        for i in range(len(self.support)):
-            if not self.featureless:
-                pre_sup = dot(x, self.vars['weights_' + str(i)],
-                              sparse=self.sparse_inputs)
-            else:
-                pre_sup = self.vars['weights_' + str(i)]
-            support = dot(self.support[i], pre_sup, sparse=True)
-            supports.append(support)
-        output = tf.add_n(supports)
 
         # bias
         if self.bias:

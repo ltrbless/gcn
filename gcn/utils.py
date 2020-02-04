@@ -20,23 +20,35 @@ def sample_mask(idx, l):
     mask[idx] = 1
     return np.array(mask, dtype=np.bool)
 
+# 在用python进行科学运算时，常常需要把一个稀疏的np.array压缩，
+# 这时候就用到scipy库中的sparse.csr_matrix(csr:Compressed Sparse Row marix)
+# 和sparse.csc_matric(csc:Compressed Sparse Column marix)
+#  示例解读
+# >>> indptr = np.array([0, 2, 3, 6])
+# >>> indices = np.array([0, 2, 2, 0, 1, 2])
+# >>> data = np.array([1, 2, 3, 4, 5, 6])
+# >>> csr_matrix((data, indices, indptr), shape=(3, 3)).toarray()
+# array([[1, 0, 2],
+#        [0, 0, 3],
+#        [4, 5, 6]])
+# 按row行来压缩
+# 对于第i行，非0数据列是indices[indptr[i]:indptr[i+1]] 数据是data[indptr[i]:indptr[i+1]]
+
 
 def load_data(dataset_str):
     """
     Loads input data from gcn/data directory
 
-    ind.dataset_str.x => the feature vectors of the training instances as scipy.sparse.csr.csr_matrix object;
-    ind.dataset_str.tx => the feature vectors of the test instances as scipy.sparse.csr.csr_matrix object;
-    ind.dataset_str.allx => the feature vectors of both labeled and unlabeled training instances
-        (a superset of ind.dataset_str.x) as scipy.sparse.csr.csr_matrix object;
-    ind.dataset_str.y => the one-hot labels of the labeled training instances as numpy.ndarray object;
-    ind.dataset_str.ty => the one-hot labels of the test instances as numpy.ndarray object;
-    ind.dataset_str.ally => the labels for instances in ind.dataset_str.allx as numpy.ndarray object;
-    ind.dataset_str.graph => a dict in the format {index: [index_of_neighbor_nodes]} as collections.defaultdict
-        object;
-    ind.dataset_str.test.index => the indices of test instances in graph, for the inductive setting as list object.
+    ind.dataset_str.x => 训练实例的特征向量，是scipy.sparse.csr.csr_matrix类对象，shape:(140, 1433)
+    ind.dataset_str.tx => 测试实例的特征向量,shape:(1000, 1433)
+    ind.dataset_str.allx => 有标签的+无无标签训练实例的特征向量，是ind.dataset_str.x的超集，shape:(1708, 1433)
+    ind.dataset_str.y => 训练实例的标签，独热编码，numpy.ndarray类的实例，是numpy.ndarray对象，shape：(140, 7)
+    ind.dataset_str.ty => 测试实例的标签，独热编码，numpy.ndarray类的实例,shape:(1000, 7)
+    ind.dataset_str.ally => 对应于ind.dataset_str.allx的标签，独热编码,shape:(1708, 7)
+    ind.dataset_str.graph => 图数据，collections.defaultdict类的实例，格式为 {index：[index_of_neighbor_nodes]}
+    ind.dataset_str.test.index => 测试实例的id，# 1708 -  2707  1000个
 
-    All objects above must be saved using python pickle module.
+    上述文件必须都用python的pickle模块存储
 
     :param dataset_str: Dataset name
     :return: All data input files loaded (as well the training/test data).
@@ -45,12 +57,14 @@ def load_data(dataset_str):
     objects = []
     for i in range(len(names)):
         with open("data/ind.{}.{}".format(dataset_str, names[i]), 'rb') as f:
-            if sys.version_info > (3, 0):
+            if sys.version_info > (3, 0):  # Python中版本获取Python版本号
                 objects.append(pkl.load(f, encoding='latin1'))
             else:
                 objects.append(pkl.load(f))
 
     x, y, tx, ty, allx, ally, graph = tuple(objects)
+    # graph: defaultdict(<class 'list'>, {0: [633, 1862, 2582], 1: [2, 652, 654], 2: [1986, 332, 1666, 1, 1454],
+
     test_idx_reorder = parse_index_file("data/ind.{}.test.index".format(dataset_str))
     test_idx_range = np.sort(test_idx_reorder)
 
@@ -66,16 +80,24 @@ def load_data(dataset_str):
         ty = ty_extended
 
     features = sp.vstack((allx, tx)).tolil()
-    features[test_idx_reorder, :] = features[test_idx_range, :]
+    features[test_idx_reorder, :] = features[test_idx_range, :]  # 换一下 和test对应起来
     adj = nx.adjacency_matrix(nx.from_dict_of_lists(graph))
 
     labels = np.vstack((ally, ty))
     labels[test_idx_reorder, :] = labels[test_idx_range, :]
 
+    _len = len(y)  # 　len(y)　１４０
+    # _len == 140  Test set results: cost= 1.00631 accuracy= 0.80900 time= 0.03092
+    # _len == 200  Test set results: cost= 0.91600 accuracy= 0.85800 time= 0.03096
+    # _len == 500  Test set results: cost= 0.86395 accuracy= 0.85300 time= 0.03192
+    # _len == 1000 Test set results: cost= 0.83154 accuracy= 0.86800 time= 0.03092
+    idx_train = range(_len)
+    idx_val = range(_len, _len + 500)
     idx_test = test_idx_range.tolist()
-    idx_train = range(len(y))
-    idx_val = range(len(y), len(y) + 500)
-
+# 一共 2708 篇论文
+# train_mask中的[0,140)范围的是True，其余是False；
+# val_mask中范围为(140, 640]范围为True，其余的是False；
+# test_mask中范围为[1708,2707]范围是True，其余的是False；
     train_mask = sample_mask(idx_train, labels.shape[0])
     val_mask = sample_mask(idx_val, labels.shape[0])
     test_mask = sample_mask(idx_test, labels.shape[0])
@@ -101,7 +123,7 @@ def sparse_to_tuple(sparse_mx):
         # print(coords)  # (49216, 2)  49216  相当于边的个数
         values = mx.data
         shape = mx.shape
-        return coords, values, shape  # coords 矩阵每个点的坐标  values 矩阵归一化之后每个点的大小 shape 矩阵的形状
+        return coords, values, shape  # coords 矩阵每个点的坐标 (49216, 2)  49216  相当于边的个数  values 矩阵归一化之后每个点的大小 shape 矩阵的形状
 
     if isinstance(sparse_mx, list):
         for i in range(len(sparse_mx)):
@@ -148,14 +170,17 @@ def preprocess_adj(adj):
     adj_normalized = normalize_adj(adj + sp.eye(adj.shape[0]))
     return sparse_to_tuple(adj_normalized)
 
+# feed_dict = construct_feed_dict(features, support, y_train, train_mask, placeholders)
+
 
 def construct_feed_dict(features, support, labels, labels_mask, placeholders):
     """Construct feed dictionary."""
     feed_dict = dict()
-    feed_dict.update({placeholders['labels']: labels})
-    feed_dict.update({placeholders['labels_mask']: labels_mask})
     feed_dict.update({placeholders['features']: features})
     feed_dict.update({placeholders['support'][i]: support[i] for i in range(len(support))})
+    feed_dict.update({placeholders['labels']: labels})
+    feed_dict.update({placeholders['labels_mask']: labels_mask})
+
     feed_dict.update({placeholders['num_features_nonzero']: features[1].shape})
     return feed_dict
 

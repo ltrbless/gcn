@@ -20,7 +20,7 @@ flags.DEFINE_string('model', 'gcn', 'Model string.')  # 'gcn', 'gcn_cheby', 'den
 flags.DEFINE_float('learning_rate', 0.01, 'Initial learning rate.')  # 默认学习率
 flags.DEFINE_integer('epochs', 200, 'Number of epochs to train.')  # 迭代次数
 # 第一层
-flags.DEFINE_integer('hidden1', 16, 'Number of units in hidden layer 1.')
+flags.DEFINE_integer('hidden1', 16, 'Number of units in hidden layer 1.')  # 第一层隐藏层的单元个数
 flags.DEFINE_float('dropout', 0.5, 'Dropout rate (1 - keep probability).')  # 保留 50% 神经元，防止过拟合
 
 # 权值衰减：防止过拟合
@@ -53,9 +53,14 @@ adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = load_da
 # train_mask中的[0,140)范围的是True，其余是False；
 # val_mask中范围为(140, 640]范围为True，其余的是False；
 # test_mask中范围为[1708,2707]范围是True，其余的是False；
-features = preprocess_features(features)
+features = preprocess_features(features)  # 归一化特征矩阵
+# preprocess_features()  --> return coords, values, shape
+# coords 矩阵每个点的坐标 (49216, 2)  49216  相当于边的个数
+# values 矩阵归一化之后每个点的大小
+# shape 矩阵的形状 (2708, 1433)
+
 if FLAGS.model == 'gcn':
-    support = [preprocess_adj(adj)]
+    support = [preprocess_adj(adj)]  # 把邻接矩阵处理为  \tilde{D}^{-1/2} \tilde{A}^{-1/2} \tilde{D}^{-1/2}
     num_supports = 1
     model_func = GCN
 elif FLAGS.model == 'gcn_cheby':  # 切比雪夫近似，加速
@@ -71,8 +76,14 @@ else:
 
 # Define placeholders
 placeholders = {
+    # 由于邻接矩阵是稀疏的，并且用LIL格式表示，因此定义为一个tf.sparse_placeholder(tf.float32)，可以节省内存
     'support': [tf.sparse_placeholder(tf.float32) for _ in range(num_supports)],
+    # features也是稀疏矩阵，也用LIL格式表示，因此定义为tf.sparse_placeholder(tf.float32)，维度(2708, 1433)
+    # print(features[2])
+    # (2708, 1433)
     'features': tf.sparse_placeholder(tf.float32, shape=tf.constant(features[2], dtype=tf.int64)),
+    # print(y_train.shape[1])
+    # 7
     'labels': tf.placeholder(tf.float32, shape=(None, y_train.shape[1])),
     'labels_mask': tf.placeholder(tf.int32),
     'dropout': tf.placeholder_with_default(0., shape=()),
@@ -80,6 +91,8 @@ placeholders = {
 }
 
 # Create model
+# # print(features[2][1])
+# 1433
 model = model_func(placeholders, input_dim=features[2][1], logging=True)
 
 # Initialize session
@@ -100,7 +113,7 @@ sess.run(tf.global_variables_initializer())
 cost_val = []
 
 # Train model
-for epoch in range(FLAGS.epochs):
+for epoch in range(3):  # range(FLAGS.epochs):
 
     t = time.time()
     # Construct feed dictionary
