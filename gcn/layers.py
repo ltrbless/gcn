@@ -56,9 +56,21 @@ class Layer(object):
         for kwarg in kwargs.keys():
             assert kwarg in allowed_kwargs, 'Invalid keyword argument: ' + kwarg
         name = kwargs.get('name')
+        # print("1" * 20)
         if not name:
             layer = self.__class__.__name__.lower()
+            # print(layer)
             name = layer + '_' + str(get_layer_uid(layer))
+            # print(name)
+        # print("1" * 20)
+        # 11111111111111111111
+        # graphconvolution
+        # graphconvolution_1
+        # 11111111111111111111
+        # 11111111111111111111
+        # graphconvolution
+        # graphconvolution_2
+        # 11111111111111111111
         self.name = name
         self.vars = {}
         logging = kwargs.get('logging', False)
@@ -107,7 +119,7 @@ class GraphConvolution(Layer):
 
         # 下面是定义变量，主要是通过调用init.py中的glorot函数实现
         # glorot函数生成随机的一定上下界的 权重矩阵
-        with tf.variable_scope(self.name + '_vars'):
+        with tf.variable_scope(self.name + '_vars'): # graphconvolution_(1||2)_vars
             for i in range(len(self.support)):
                 self.vars['weights_' + str(i)] = glorot([input_dim, output_dim],
                                                         name='weights_' + str(i))

@@ -113,8 +113,10 @@ sess.run(tf.global_variables_initializer())
 cost_val = []
 
 # Train model
-for epoch in range(3):  # range(FLAGS.epochs):
-
+_epochs = 200
+for epoch in range(_epochs):  # range(FLAGS.epochs):
+    # l2_loss(var2_w0) 200 Test set results: cost= 0.70204 accuracy= 0.80700 time= 0.03091
+    # l2_loss(var1_w0) 200 Test set results: cost= 1.00631 accuracy= 0.80900 time= 0.03092
     t = time.time()
     # Construct feed dictionary
     feed_dict = construct_feed_dict(features, support, y_train, train_mask, placeholders)
@@ -122,8 +124,12 @@ for epoch in range(3):  # range(FLAGS.epochs):
 
     # Training step
     outs = sess.run([model.opt_op, model.loss, model.accuracy], feed_dict=feed_dict)
-
-    # Validation
+    if epoch == (_epochs - 1):
+        pred = sess.run(model.predict(), feed_dict=feed_dict)
+        pred = tf.argmax(pred, 1)
+        pred = sess.run(pred)
+        # print(len(pred))
+    # Validation 验证  y_val, val_mask ： 验证集
     cost, acc, duration = evaluate(features, support, y_val, val_mask, placeholders)
     cost_val.append(cost)
 
@@ -142,3 +148,79 @@ print("Optimization Finished!")
 test_cost, test_acc, test_duration = evaluate(features, support, y_test, test_mask, placeholders)
 print("Test set results:", "cost=", "{:.5f}".format(test_cost),
       "accuracy=", "{:.5f}".format(test_acc), "time=", "{:.5f}".format(test_duration))
+
+
+# 网络可视乎代码 ：
+import pandas as pd
+from pyecharts import Graph
+
+print("*" * 10 , " 开始绘制 ", "*" * 10)
+
+node_scale = 200 # 节点范围
+mylink = []
+for i in features[0][:]:
+    x, y = i[0], i[1]
+    # print(x, y)
+    if x < node_scale and y < node_scale:
+        mylink.append({'source': str(x), 'target': str(y)})
+
+node_all = []
+for i, j in enumerate(pred[:]):
+    # print(i, j)
+    if i < node_scale:
+        node_all.append(
+            {'name': str(i),  # paper的ID
+             'symbolSize': 8.0,  # node 的大小
+             # 'value': 2,
+             'draggable': 'true',  # 可拖动
+             'category': j}  # category 后面会提到, paper的类型
+        )
+
+# category需要在这边设置
+categories = []
+colors = ["#FFFF00",
+          "#CC66FF",
+          "#33CCFF",
+          "#FF0033",
+          "#336666",
+          "#00FF00",
+          "#3333CC"]
+
+for i in range(7):
+    categories.append(
+        {
+            "name": str(i),
+            "itemStyle":
+                {
+                    "normal":
+                    {
+                        "color": colors[i],  # 公司颜色为蓝
+                        "borderColor": colors[i],
+                        "borderWidth": 1.8
+                    }
+            }
+        }
+    )
+
+# 设置图片大小，名称
+graph = Graph("Test",
+              width=1200,
+              height=900,
+              subtitle="Test_sub")
+
+graph.add("Name: ",
+          node_all,
+          mylink,
+          categories=categories,
+          is_label_show=True,
+          # graph_layout="force",
+          repulsion=50,
+          # graph_edge_symbol=['cricle'],
+          label_text_color='#3d3631',
+          is_legend_show=True,
+          line_curve=0,  # 如果值为0，那么关系线则没有弧度
+          opacity=0.7)
+# use_theme('vintage')
+# graph.show_config()
+graph.render()
+print("*" * 10 , " 绘制完成 ", "*" * 10)

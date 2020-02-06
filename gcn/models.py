@@ -12,8 +12,8 @@ class Model(object):
             assert kwarg in allowed_kwargs, 'Invalid keyword argument: ' + kwarg
         name = kwargs.get('name')
         if not name:
-            name = self.__class__.__name__.lower()
-        self.name = name
+            name = self.__class__.__name__.lower()  # 获取当前类名的小写形式
+        self.name = name  # 对于GCN来说是　　gcn
 
         logging = kwargs.get('logging', False)
         self.logging = logging
@@ -37,7 +37,7 @@ class Model(object):
 
     def build(self):
         """ Wrapper for _build() """
-        with tf.variable_scope(self.name):
+        with tf.variable_scope(self.name):  # gcn
             self._build()
 
         # Build sequential layer model
@@ -57,12 +57,19 @@ class Model(object):
         variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=self.name)
         self.vars = {var.name: var for var in variables}
         print('*' * 20)
+        print(self.name)
         print(self.vars)
         print('-' * 20)
 
         # Build metrics
         self._loss()
         self._accuracy()
+#     self.loss += FLAGS.weight_decay * tf.nn.l2_loss(self.layers[0].vars.values())
+#     self.loss += masked_softmax_cross_entropy(self.outputs, self.placeholders['labels'],
+#                                               self.placeholders['labels_mask'])
+#     self.accuracy = masked_accuracy(self.outputs, self.placeholders['labels'],
+#                                     self.placeholders['labels_mask'])
+
 
         self.opt_op = self.optimizer.minimize(self.loss)
 
@@ -107,11 +114,16 @@ class GCN(Model):
         self.build()
 
     def _loss(self):
-        # Weight decay loss # 正则化项
+        # Weight decay loss # 正则化项  对权重进行限制  防止过拟合
         for var in self.layers[0].vars.values():
+            print('2' * 20)
+            print(var)
+            print('2' * 20)
+            # <tf.Variable 'gcn/graphconvolution_1_vars/weights_0:0' shape=(1433, 16) dtype=float32_ref>
+
             self.loss += FLAGS.weight_decay * tf.nn.l2_loss(var)
 
-        # Cross entropy error
+        # Cross entropy error # 交叉熵损失函数
         self.loss += masked_softmax_cross_entropy(self.outputs, self.placeholders['labels'],
                                                   self.placeholders['labels_mask'])
 
